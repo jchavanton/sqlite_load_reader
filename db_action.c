@@ -7,19 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-sqlite3 * db_connect (const char *db_name) {
-	sqlite3 *conn;;
-	int flags = SQLITE_OPEN_READONLY;
-	int rc = sqlite3_open_v2(db_name, &conn, flags, NULL);
 
-	if (rc != SQLITE_OK) {
-		printf("error opening [%s]\n", db_name);
-		return NULL;
-	} else {
-		printf("[%s] connected\n", db_name);
-	}
-	return conn;
-}
 
 void db_query (sqlite3 *conn, const char *query ) {
 	int i;
@@ -55,6 +43,23 @@ void db_query (sqlite3 *conn, const char *query ) {
 		printf("finalize failed: %s\n",sqlite3_errmsg(conn));
 		stmt = NULL;
 	}
+}
+
+sqlite3 * db_connect (const char *db_name) {
+	sqlite3 *conn;;
+	int flags = SQLITE_OPEN_READONLY;
+	int rc = sqlite3_open_v2(db_name, &conn, flags, NULL);
+
+	if (rc != SQLITE_OK) {
+		printf("error opening [%s]\n", db_name);
+		return NULL;
+	} else {
+		printf("[%s] connected\n", db_name);
+	}
+	// PRAGMA journal_mode=WAL;
+	db_query(conn, "PRAGMA journal_mode=WAL");
+	db_query(conn, "PRAGMA journal_mode");
+	return conn;
 }
 
 int work(int pid) {
