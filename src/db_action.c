@@ -64,14 +64,19 @@ sqlite3 * db_connect (const char *db_name) {
 
 int work(int pid) {
 	const char *db = "/var/lib/docker/volumes/neustardb/_data/neustar.sqlite";
-	sqlite3 *conn = db_connect(db);
 	char query[1024];
+	sqlite3 *conn = db_connect(db);
+	if (!conn) {
+		printf("error connecting to [%s]\n", db);
+		return -1;
+	}
 	srand(time(NULL));
 	time_t timer;
 	char ts[26];
 	struct tm* tm_info;
 	struct timeval stop, start;
 	printf("worker started[%d]\n", pid);
+	int count=0;
 	while (1) {
 		// int n = rand() % 8;
 		// 2012000014 key
@@ -96,7 +101,9 @@ int work(int pid) {
 		printf("[%d][%d][%s][%d][%s]\n",pid,sleep_us,ts,(int)(stop.tv_usec-start.tv_usec),query);
 		// usleep(100000);
 		usleep(sleep_us);
+		count++;
 	}
+	return count;
 }
 
 int main() {

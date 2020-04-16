@@ -1,4 +1,4 @@
 INCLUDES = -Ilib/sqlite
 
 all:
-	gcc db_action.c -o db_action -lsqlite3  $(INCLUDES)
+	gcc src/db_action.c -o bin/db_action -lsqlite3  $(INCLUDES)
