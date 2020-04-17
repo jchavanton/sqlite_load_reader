@@ -8,8 +8,27 @@
 #include <time.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <inttypes.h>
 
-static int debug;
+static int debug=0;
+static int max_read=100000;
+
+/**
+ * Returns the current resident set size (physical memory use) measured
+ * in Kbytes, or zero if the value cannot be determined on this OS.
+ */
+uint32_t get_mem_usage(void) {
+	long rss = 0L;
+	FILE* fp = NULL;
+	if ((fp = fopen( "/proc/self/statm", "r" )) == NULL)
+		return (size_t)0L;
+	if (fscanf(fp, "%*s%ld", &rss ) != 1) {
+	    fclose(fp);
+	    return (size_t)0L;
+	}
+	fclose(fp);
+	return (((size_t)rss * (size_t)sysconf( _SC_PAGESIZE))/1024);
+}
 
 long time_diff(struct timeval x , struct timeval y) {
 	long x_ms , y_ms , diff;
@@ -19,7 +38,7 @@ long time_diff(struct timeval x , struct timeval y) {
 	return diff;
 }
 
-void db_query (sqlite3 *conn, const char *query ) {
+void db_query (sqlite3 *conn, const char *query, int print) {
 	int i;
 	sqlite3_stmt *stmt;
 
@@ -38,10 +57,13 @@ void db_query (sqlite3 *conn, const char *query ) {
 			return;
 		} else {
 			/* get column types */
-			rc = sqlite3_column_count(stmt);
+			int cols = sqlite3_column_count(stmt);
 			int c=0;
-			if (debug)
-				printf("sqlite3_column_count: %d\n", rc);
+			if (print) {
+				// printf("sqlite3_column_count: %d\n", cols);
+				for (int i=0; i<cols; i++)
+					printf("%s: %s\n", sqlite3_column_name(stmt, i), sqlite3_column_text(stmt, i));
+			}
 			// sqlite3_column_name(stmt, c);
 			// sqlite3_column_decltype(stmt, c);
 			// sqlite3_column_type(stmt, c)
@@ -68,9 +90,26 @@ sqlite3 * db_connect (const char *db_name) {
 		printf("[%s] connected\n", db_name);
 	}
 	// PRAGMA journal_mode=WAL;
-	db_query(conn, "PRAGMA journal_mode=WAL");
-	db_query(conn, "PRAGMA journal_mode");
+	db_query(conn, "PRAGMA journal_mode=WAL", 1);
+	db_query(conn, "PRAGMA CACHE_SIZE", 1);
+//	db_query(conn, "PRAGMA synchronous=NORMAL", 1);
+	db_query(conn, "PRAGMA synchronous", 1);
 	return conn;
+}
+
+typedef struct stats {
+        int max_us;
+        float average;  // weigthed average, estimate of the last few weeks
+        int32_t count;
+} stats_t;
+
+void update_stats(stats_t* stats, int elapsed_us) {
+	stats->count++;
+	if (stats->max_us < elapsed_us) {
+		stats->max_us = elapsed_us;
+	}
+	float delta = elapsed_us - stats->average;
+	stats->average += delta/stats->count;
 }
 
 int work(int pid) {
@@ -87,11 +126,13 @@ int work(int pid) {
 	struct tm* tm_info;
 	struct timeval stop, start;
 	printf("worker started[%d]\n", pid);
-	int count=0;
-	long max_us=0;
+	stats_t stats;
+	memset(&stats, 0, sizeof(stats_t));
 
+	uint32_t kbytes = get_mem_usage();
+	printf("mem[%"PRIu32"KB/%"PRIu32"MB]\n", kbytes, kbytes/1024);
 	char num[10];
-	while (count < 10000) {
+	while (stats.count < max_read) {
 		// int n = rand() % 8;
 		// 2012000014 key
 		time(&timer);
@@ -108,23 +149,25 @@ int work(int pid) {
 		// snprintf(query,1024,"select * from sv where key = %s limit 1", num);
 		// snprintf(query,1024,"select * from sv limit 1");
 		gettimeofday(&start, NULL);
-		db_query(conn, query);
+		db_query(conn, query, debug);
 		gettimeofday(&stop, NULL);
 		uint32_t sleep_us = 100 * (rand()%1000);
-		// printf("pid[%d]count[%d][%d][%s][%d][%s]\n",pid,count,sleep_us,ts,(int)(stop.tv_usec-start.tv_usec),query);
+		// printf("pid[%d]count[%d][%d][%s][%d][%s]\n",pid,stats.count,sleep_us,ts,(int)(stop.tv_usec-start.tv_usec),query);
 		// uint32_t elapsed_us = stop.tv_usec-start.tv_usec;
 		long elapsed_us  = time_diff(start, stop);
-		if (max_us < elapsed_us) max_us = elapsed_us;
+		update_stats(&stats, elapsed_us);
+
 		if (debug)
-			printf("pid[%d]count[%d]number[%s][%ldus]\n",pid,count,num,elapsed_us);
+			printf("pid[%d]count[%d]number[%s][%ldus]\n",pid,stats.count,num,elapsed_us);
 
 		// usleep(1000000);
-		//usleep(sleep_us);
-		count++;
+		// usleep(sleep_us);
 	}
-	printf("pid[%d] done[%d] max_ms[%dms]\n", pid, count, (uint32_t)(max_us/1024));
+	kbytes = get_mem_usage();
+	printf("pid[%d]done[%d]max_ms[%dms]avg_ms[%dus]mem[%"PRIu32"KB/%"PRIu32"MB]\n",
+		pid, stats.count, (uint32_t)(stats.max_us/1000), (uint32_t)(stats.average), kbytes, kbytes/1024);
 	fflush(stdout);
-	exit(count);
+	exit(stats.count);
 }
 
 int main() {
