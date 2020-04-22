@@ -51,10 +51,10 @@ void db_query (sqlite3 *conn, const char *query, int print) {
 	while (1) {
 		rc = sqlite3_step(stmt);
 		if (rc == SQLITE_DONE) {
-			return;
+			goto finalize;
 		} else if (rc != SQLITE_ROW) {
 			printf("sqlite3_step failed: %s\n", sqlite3_errmsg(conn));
-			return;
+			goto finalize;
 		} else {
 			/* get column types */
 			int cols = sqlite3_column_count(stmt);
@@ -70,6 +70,7 @@ void db_query (sqlite3 *conn, const char *query, int print) {
 		}
 	}
 	// sqlite3_bind_text
+finalize:
 	if (stmt != NULL) {
 		rc = sqlite3_finalize(stmt);
 		if (rc != SQLITE_OK)
